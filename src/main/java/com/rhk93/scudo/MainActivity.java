@@ -85,6 +85,7 @@ public class MainActivity extends Activity {
     private TextView tvOggi, tvTotale;
     private LinearLayout listaApp;
     private String filtroApp = "";
+    private boolean modificaSensibili = false;
 
     private final Runnable riavvio = () -> {
         if (ScudoVpnService.attivo) avviaServizio(false);
@@ -330,10 +331,18 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout sezione(LinearLayout parent, String titolo, String nota) {
+        return sezione(parent, titolo, nota, null);
+    }
+
+    private LinearLayout sezione(LinearLayout parent, String titolo, String nota, View azione) {
         if (titolo != null) {
+            LinearLayout testa = new LinearLayout(this);
+            testa.setGravity(Gravity.BOTTOM);
             TextView h = t(titolo.toUpperCase(Locale.ITALY), 13, Stile.testo2, false);
             h.setPadding(dp(16), dp(22), dp(16), dp(7));
-            parent.addView(h);
+            testa.addView(h, new LinearLayout.LayoutParams(0, -2, 1f));
+            if (azione != null) testa.addView(azione);
+            parent.addView(testa);
         } else {
             parent.addView(new View(this), new LinearLayout.LayoutParams(-1, dp(20)));
         }
@@ -841,9 +850,39 @@ public class MainActivity extends Activity {
             else altre.add(a);
         }
 
+        TextView modifica = bottoneTesto(modificaSensibili ? "Fine" : "Modifica", Stile.accento, v -> {
+            modificaSensibili = !modificaSensibili;
+            riempiListaApp();
+        });
+        modifica.setPadding(dp(12), dp(16), dp(8), dp(4));
+        if (modificaSensibili) modifica.setTypeface(Stile.fontGrassetto);
         LinearLayout card = sezione(listaApp, "Le tue app sensibili · " + sensEscluse + " escluse",
-                "Le app sensibili vengono escluse appena le aggiungi. Tocca il nome di un'app per aggiungerla o toglierla dalle sensibili.");
-        for (AppInfo a : sens) aggiungi(card, rigaApp(a, esc, true));
+                modificaSensibili
+                        ? "Tocca il pallino rosso per togliere un'app dall'elenco. Poi tocca «Fine»."
+                        : "Le app sensibili vengono escluse appena le aggiungi. Tocca «Modifica» per toglierne qualcuna.",
+                sens.isEmpty() ? null : modifica);
+        if (sens.isEmpty()) modificaSensibili = false;
+        for (AppInfo a : sens) {
+            View r = rigaApp(a, esc, true);
+            if (modificaSensibili) {
+                TextView meno = new TextView(this);
+                meno.setText("−");
+                meno.setTextColor(Color.WHITE);
+                meno.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+                meno.setTypeface(Typeface.DEFAULT_BOLD);
+                meno.setGravity(Gravity.CENTER);
+                GradientDrawable tondo = new GradientDrawable();
+                tondo.setShape(GradientDrawable.OVAL);
+                tondo.setColor(Stile.ROSSO);
+                meno.setBackground(tondo);
+                meno.setContentDescription("Togli " + a.nome + " dalle app sensibili");
+                meno.setOnClickListener(v -> confermaTogli(a));
+                LinearLayout.LayoutParams lpm = new LinearLayout.LayoutParams(dp(24), dp(24));
+                lpm.rightMargin = dp(12);
+                ((LinearLayout) r).addView(meno, 0, lpm);
+            }
+            aggiungi(card, r);
+        }
         if (f.isEmpty()) {
             aggiungi(card, riga(null, "Aggiungi un'app sensibile…", Stile.accento, null, null,
                     v -> scegliSensibile()));
@@ -908,7 +947,7 @@ public class MainActivity extends Activity {
         String voce = sensibile ? "Togli dalle app sensibili" : "Aggiungi alle app sensibili";
         dialogo().setTitle(a.nome)
                 .setItems(new String[]{voce}, (d, w) -> {
-                    if (sensibile) togliSensibile(a);
+                    if (sensibile) confermaTogli(a);
                     else aggiungiSensibile(a);
                 })
                 .setNegativeButton("Annulla", null).show();
@@ -929,14 +968,29 @@ public class MainActivity extends Activity {
         riempiListaApp();
     }
 
-    private void togliSensibile(AppInfo a) {
+    private void confermaTogli(AppInfo a) {
+        dialogo().setTitle("Togliere " + a.nome + " dalle app sensibili?")
+                .setItems(new String[]{"Togli, ma lasciala esclusa", "Togli e falla passare dal filtro"},
+                        (d, w) -> togliSensibile(a, w == 1))
+                .setNegativeButton("Annulla", null).show();
+    }
+
+    private void togliSensibile(AppInfo a, boolean filtra) {
         Set<String> mie = Prefs.set(this, Prefs.SENS_MIE);
         Set<String> rimosse = Prefs.set(this, Prefs.SENS_RIMOSSE);
         mie.remove(a.pkg);
         if (chiaveSensibile(a) != null) rimosse.add(a.pkg);
         Prefs.salvaSet(this, Prefs.SENS_MIE, mie);
         Prefs.salvaSet(this, Prefs.SENS_RIMOSSE, rimosse);
-        toast(a.nome + " non è più tra le sensibili (resta esclusa finché non la spegni)");
+        if (filtra) {
+            Set<String> esc = Prefs.escluse(this);
+            esc.remove(a.pkg);
+            Prefs.salvaSet(this, Prefs.ESCLUSE, esc);
+            programmaRiavvio();
+            toast(a.nome + " tolta dalle sensibili: ora passa dal filtro");
+        } else {
+            toast(a.nome + " tolta dalle sensibili: resta esclusa");
+        }
         riempiListaApp();
     }
 
@@ -1126,7 +1180,7 @@ public class MainActivity extends Activity {
                     }
                 }));
 
-        TextView ver = t("Scudo 1.1 · nessun dato raccolto, nessun account", 13, Stile.testo2, false);
+        TextView ver = t("Scudo 1.2 · nessun dato raccolto, nessun account", 13, Stile.testo2, false);
         ver.setGravity(Gravity.CENTER);
         ver.setPadding(0, dp(28), 0, 0);
         c.addView(ver, new LinearLayout.LayoutParams(-1, -2));
